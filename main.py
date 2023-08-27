@@ -99,9 +99,9 @@ def handle_text_message(event):
             db_logger.write_log(
                 timestamp=int(time.time()),
                 user_id=user_id,
-                prompt=memory.get(user_id).default_system_message,
+                prompt=os.getenv('SYSTEM_MESSAGE'),
                 input_text=text,
-                output_text=response[1])
+                output_text=response)
 
     # pylint: disable=broad-exception-caught
     except Exception as error:

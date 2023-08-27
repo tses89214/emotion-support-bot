@@ -260,6 +260,7 @@ class DynamoDBLogHandler:
         data = self.query_log(limit)
         data = pd.DataFrame(
             data)[['timestamp', 'user_id', 'prompt', 'input_text', 'output_text']]
+        data = data.sort_values(by='timestamp', ascending=False)
         data['timestamp'] = data['timestamp'].apply(
             lambda x: pd.to_datetime(int(x), unit='s'))
         tbody = data.to_html(header=False, index=False)
