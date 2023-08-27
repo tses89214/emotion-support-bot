@@ -262,7 +262,8 @@ class DynamoDBLogHandler:
             data)[['timestamp', 'user_id', 'prompt', 'input_text', 'output_text']]
         data = data.sort_values(by='timestamp', ascending=False)
         data['timestamp'] = data['timestamp'].apply(
-            lambda x: pd.to_datetime(int(x), unit='s'))
+            lambda x:
+            pd.to_datetime(int(x), unit='s', utc=True).tz_convert('Asia/Taipei').strftime('%Y-%m-%d %H:%M:%S'))
         tbody = data.to_html(header=False, index=False)
         tbody = re.sub('<table border="1" class="dataframe">', '', tbody)
         tbody = re.sub('</table>', '', tbody)
