@@ -119,3 +119,9 @@ dist
 
 # keys 
 keys.txt
+
+# vscode settings
+.vscode
+
+# python cache
+**/__pycache__
