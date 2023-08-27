@@ -2,9 +2,16 @@
 DocString.
 """
 import os
+import time
 
 from dotenv import load_dotenv
-from flask import Flask, request, abort
+from werkzeug.security import generate_password_hash, check_password_hash
+from flask_login import LoginManager, UserMixin, login_user, logout_user, login_required, current_user
+from flask import \
+    Flask, request, abort, render_template, flash, url_for, \
+    send_from_directory, Markup, send_file, redirect, session
+import boto3
+
 from linebot import (
     LineBotApi, WebhookHandler
 )
@@ -15,13 +22,14 @@ from linebot.models import (
     MessageEvent, TextMessage, TextSendMessage, AudioMessage, ImageMessage
 )
 
-from src.models import OpenAIModel
+from src.models import OpenAIModel, DynamoDBLogHandler
 from src.memory import Memory
 from src.logger import logger
 from src.utils import get_role_and_content
 
 load_dotenv('.env')
 app = Flask(__name__)
+app.secret_key = os.urandom(24)
 line_bot_api = LineBotApi(os.getenv('LINE_CHANNEL_ACCESS_TOKEN'))
 handler = WebhookHandler(os.getenv('LINE_CHANNEL_SECRET'))
 default_api_key = os.getenv('DEFAULT_API_KEY')
@@ -31,6 +39,14 @@ memory = Memory(
     memory_message_count=2)
 model_management = {}
 api_keys = {}
+
+dynamodb = boto3.resource(
+    'dynamodb',
+    aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+    aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY'),
+    region_name='us-west-1'
+)
+db_logger = DynamoDBLogHandler(dynamodb)
 
 
 @app.route("/callback", methods=['POST'])
@@ -80,6 +96,12 @@ def handle_text_message(event):
             role, response = get_role_and_content(response)
             msg = TextSendMessage(text=response)
             memory.append(user_id, role, response)
+            db_logger.write_log(
+                timestamp=int(time.time()),
+                user_id=user_id,
+                prompt=memory.get(user_id).default_system_message,
+                input_text=text,
+                output_text=response[1])
 
     # pylint: disable=broad-exception-caught
     except Exception as error:
@@ -123,7 +145,105 @@ def home():
     """
     The entrypoint of backstage system.
     """
-    return 'Hello World'
+    return redirect('logs')
+
+
+############################################
+###########     後台介面    #################
+############################################
+
+
+login_manager = LoginManager()
+login_manager.init_app(app)
+login_manager.login_view = "login"
+legal_users = {'panda': {'password': 'panda'}}
+######## USER #####################
+
+
+class User(UserMixin):
+    def __init__(self):
+        self.id = None
+
+
+@login_manager.user_loader
+def user_loader(user_id):
+    if user_id not in legal_users:
+        return
+
+    user = User()
+    user.id = user_id
+    return user
+
+
+@login_manager.request_loader
+def request_loader(request):
+    user = request.form.get('user_id')
+    if user not in legal_users:
+        return
+    user = User()
+    user.id = user
+    user.is_authenticated = request.form['password'] == legal_users[user]['password']
+    return user
+
+
+def verify_user(user_id, pwd):
+    return (user_id in legal_users) and (pwd == legal_users[user_id]['password'])
+
+################################################
+
+
+##############   admin  page   #################
+# ------log in page -----------
+@app.route("/login", methods=['GET', 'POST'])
+def login():
+    if request.method == 'GET':
+        return render_template("login.html")
+
+    if request.method == 'POST':
+        user_id = request.form['user_id']
+        pwd = request.form['password']
+        if verify_user(user_id, pwd):
+            user = User()
+            user.id = user_id
+            login_user(user)
+            return redirect(url_for('home'))
+        else:
+            return redirect(url_for('login'))
+    else:
+        return redirect(url_for('login'))
+
+
+@app.route('/logout')
+def logout():
+    logout_user()
+    return render_template('login.html')
+
+
+@app.route("/home", methods=['GET', 'POST'])
+@login_required
+def home_page():
+    return render_template("index.html")
+
+
+@app.route("/logs", methods=['GET', 'POST'])
+@login_required
+def current_logs():
+    return render_template("logs.html", tbody=Markup(db_logger.get_log_html_body()))
+
+
+@app.route('/css/<path:path>')
+def send_css(path):
+    return send_from_directory('templates//css', path)
+
+
+@app.route('/js/<path:path>')
+def send_js(path):
+    return send_from_directory('templates//js', path)
+
+
+@app.route('/assets/<path:path>')
+def send_assets(path):
+    return send_from_directory('templates//assets', path)
 
 
 if __name__ == "__main__":

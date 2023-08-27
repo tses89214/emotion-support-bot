@@ -3,3 +3,7 @@ python-dotenv==0.21.1
 Flask==2.2.2
 opencc-python-reimplemented==0.1.4
 pymongo==4.3.3
+flask_cors==4.0.0
+flask_login==0.6.2
+flask_httpauth==4.8.0
+boto3==1.28.35 
